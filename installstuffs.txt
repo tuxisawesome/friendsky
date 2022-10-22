@@ -1,0 +1,324 @@
+Installation Ubuntu 20
+
+Environment
+
+Update your system
+
+sudo apt update && sudo apt upgrade
+General dependencies
+
+sudo apt install -y build-essential software-properties-common curl ssh make
+A working LAMP stack
+
+linux, ubuntu >= 18
+apache2
+mysql >= 5.7
+php >= 7.2
+sudo apt install -y mysql-server mysql-client apache2 php libapache2-mod-php php-mysql
+Node.js
+
+node >= 10.x.x
+
+An easy way to manage node is: https://github.com/tj/n
+
+if node/npm is already installed
+
+npm install -g n
+Then set nodejs version
+
+n lts
+Or from scratch
+
+sudo curl -L https://raw.githubusercontent.com/tj/n/master/bin/n -o n
+sudo bash n lts
+Lets Encrypt
+
+ sudo snap install core; sudo snap refresh core
+ sudo snap install --classic certbot
+ sudo ln -s /snap/bin/certbot /usr/bin/certbot 
+Apache / Certificates
+
+Open default config
+
+sudo nano /etc/apache2/sites-available/000-default.conf
+and set by removing “#”
+
+Servername your.domain.com
+Enable modules
+
+sudo a2enmod headers proxy proxy_http proxy_wstunnel xml2enc
+then restart apache
+
+sudo systemctl restart apache2
+Install certificates
+
+sudo certbot --apache
+and restart apache again
+
+Add to hosts
+
+sudo nano /etc/hosts
+127.0.0.1 your.domain.com
+FriendUP
+
+Install dependencies
+
+sudo apt install -y libsmbclient-dev libssh2-1-dev libssh-dev libssl-dev libaio-dev php7.4-cli php7.4-gd php7.4-imap php7.4-mysql php7.4-curl libmysqlclient-dev libmatheval-dev libmagic-dev libgd-dev libwebsockets-dev cmake libssh-dev php7.4-zip libsqlite3-dev php7.4-mbstring rsync valgrind-dbg libxml2-dev php7.4-readline 
+Install Friendup
+
+Make sure you are in your home folder
+
+cd
+Clone
+
+git clone https://github.com/FriendSoftwareLabs/friendup
+Create “Config” file in friendup directory and put this lines there:
+
+USE_SSH_THREADS_LIB=0
+OPENSSL_INTERNAL=1
+Build
+
+cd friendup
+make clean setup && make compile -j && make install
+sh install_systemd.sh
+Database
+
+replace XXSQLPASSWORDXX with your own password
+
+sudo mysql -u root
+create database friendup;
+CREATE USER 'friendup'@'localhost' IDENTIFIED WITH mysql_native_password BY 'XXSQLPASSWORDXX';
+ GRANT ALL PRIVILEGES ON friendup.* TO 'friendup'@'localhost' WITH GRANT OPTION;
+flush privileges;
+exit;
+sudo mysql friendup < ~/friendup/db/FriendCoreDatabase.sql
+Symlink certificates to friend
+
+replace XxDOMAINxX with your domain name
+
+{
+cd ~/friendup/build/cfg/crt
+sudo chmod +x /etc/letsencrypt/live && sudo chmod +x /etc/letsencrypt/archive
+sudo chmod +x /etc/letsencrypt/archive/XxDOMAINxX
+sudo chmod +x /etc/letsencrypt/live/XxDOMAINxX
+sudo ln -s /etc/letsencrypt/live/XxDOMAINxX/fullchain.pem certificate.pem
+sudo ln -s /etc/letsencrypt/live/XxDOMAINxX/privkey.pem key.pem
+sudo chmod +r /etc/letsencrypt/archive/XxDOMAINxX/privkey1.pem
+}
+Set config
+
+nano ~/friendup/build/cfg/cfg.ini
+copy/paste
+
+;
+; Friend Core configuration file
+; ------------------------------
+; Please respect both spaces and breaks between lines if you change this file manually
+;
+[DatabaseUser]
+login = friendup
+password = "friendup1"
+host = localhost
+dbname = friendup
+port = 3306
+
+[FriendCore]
+fchost = XXDOMAINXX
+fcport = 6502
+fcupload = storage/
+fconlocalhost = 1
+workers = 128
+preventWizard = 1
+
+[Core]
+port = 6502
+SSLEnable = 1
+ProxyEnable=1
+
+[Security]
+blocktimeout = 30
+blockattempts = 10
+
+[FriendNetwork]
+enabled = 0
+
+[ServiceKeys]
+presence = "XXPRESENCEKEYXX"
+
+[FriendChat]
+enabled = 1
+Make sure to replace XXThingXX with your own values.
+
+XXPRESENCEKEYXX will also be set in presence config.js. This string is a ‘password’ for Presence to talk to FriendCore, and should be created with that in mind.
+
+Set Apache config
+
+sudo nano /etc/apache2/sites-available/000-default-le-ssl.conf
+Add under DocumentRoot /var/www/html
+
+#FRIEND CONFIG
+SetEnvIf Request_URI "^/guacamole/tunnel" dontlog
+CustomLog /var/log/apache2/guac.log common env=!dontlog
+Header set Access-Control-Allow-Origin "*"
+Header set Access-Control-Allow-Headers "method, origin, content-type, accept, options, Content-Type, Access-Control-Allow-Headers, Authorization, X-Requested-With"
+Header set Access-Control-Allow-Methods "POST, GET, PATCH, DELETE, PUT, OPTIONS"
+SetEnv proxy-sendchunked
+SetEnv proxy-sendcl
+AllowEncodedSlashes NoDecode
+<Location />
+    Order allow,deny
+    Allow from all
+    ProxyPass https://127.0.0.1:6502/ flushpackets=on
+    ProxyPassReverse https://127.0.0.1:6502/
+</Location>
+
+#Friend Core websocket
+<Location /fcws>
+    Order allow,deny
+    Allow from all
+    #as set in friendup/build/cfg/cfg.ini "wsport" variable [Core]
+    ProxyPass wss://127.0.0.1:6500/ flushpackets=on
+    ProxyPassReverse wss://127.0.0.1:6500/
+</Location>
+
+<Location /.well-known>
+    ProxyPass "!"
+</Location>
+
+<Location /dropbox-saveuser.php>
+    ProxyPass "!"
+</Location>
+
+<Location /gdrive-saveuser.php>
+    ProxyPass "!"
+</Location>
+
+<Location /rainloop>
+    ProxyPass "!"
+</Location>
+
+<Location /login/>
+    Header set Access-Control-Allow-Origin "*"
+    Header set Access-Control-Allow-Headers "Accept, Origin, Content-Type, Guacamole-Status-Code"
+    Header set Access-Control-Allow-Methods "POST, PUT, DELETE, PATCH, GET"
+    Header set X-Frame-Options "allowall"
+    Order allow,deny
+    Allow from all
+    ProxyPass https://canvas.academy.se/login/ flushpackets=on
+    ProxyPassReverse https://canvas.academy.se/login/
+</Location>
+
+<Location /guacamole/websocket-tunnel>
+    Order allow,deny
+    Allow from all
+    ProxyPass ws://127.0.0.1:8080/guacamole/websocket-tunnel
+    ProxyPassReverse ws://127.0.0.1:8080/guacamole/websocket-tunnel
+</Location>
+
+SSLProxyEngine on
+SSLProxyVerify none
+SSLProxyCheckPeerCN off
+SSLProxyCheckPeerName off
+SSLProxyCheckPeerExpire off
+
+<Location /hello/>
+    Order allow,deny
+    Allow from all
+    ProxyPass https://127.0.0.1:3000/
+    ProxyPassReverse https://127.0.0.1:3000/
+</Location>
+
+<Location /hello/chat/>
+    Order allow,deny
+    Allow from all
+    ProxyPass wss://127.0.0.1:3001/
+    ProxyPassReverse wss://127.0.0.1:3001/
+</Location>
+
+<Location /presence>
+    Order allow,deny
+    Allow from all
+    ProxyPass wss://127.0.0.1:27960/
+    ProxyPassReverse wss://127.0.0.1:27960/
+</Location>
+
+<Location /presence/guest>
+    Order allow,deny
+    Allow from all
+    ProxyPass wss://127.0.0.1:27970/
+    ProxyPassReverse wss://127.0.0.1:27970/
+</Location>
+
+<Location /saml>
+    ProxyPass "!"
+</Location>
+# SAML STUFF
+SetEnv SIMPLESAMLPHP_CONFIG_DIR /home/ubuntu/simplesamlphp/config
+Alias /saml /home/ubuntu/simplesamlphp/www
+<Directory /home/ubuntu/simplesamlphp/www>
+Require all granted
+</Directory>
+#END FRIEND CONFIG
+Restart apache
+
+sudo systemctl restart apache2
+Set FriendCore to start on boot, and start it
+
+sudo systemctl enable friendcore
+sudo systemctl start friendcore
+After you started FriendCore, go to your domain and try to login to Friend by using:
+
+Username: fadmin
+
+Password securefassword
+
+FriendChat / Presence
+
+The installer will ask for some info. For STUN/TURN, use
+
+TURN
+ice.friendup.cloud:5349
+username:TINA
+password:TURNER
+
+STUN
+ice.friendup.cloud:3478
+The above server is located in europe. For the americas, “usice.friendup.cloud” will probably be more responsive. There is currently no asian or oceanic server.
+
+Clone and install
+
+cd
+git clone https://github.com/FriendSoftwareLabs/friendchat.git
+cd friendchat
+./install.sh
+Once install.sh is ran insert the following path to your friendup build: /home/ubuntu/friendup/build
+
+Add FriendCore service key to Presence config
+
+nano ~/friendup/build/services/Presence/config.js
+Go to section server -> friendcore and add
+
+useTLS     : false,
+serviceKey : 'XXPRESENCEKEYXX',
+Start the services
+
+sudo systemctl start friendchat-server.service
+sudo systemctl start presence-server.service
+Note: If you experience Friend Chat connecting issues on Ubuntu 18 please follow this steps:
+
+sudo apt install apache2=2.4.29-1ubuntu4 apache2-bin=2.4.29-1ubuntu4 apache2-utils=2.4.29-1ubuntu4 apache2-data=2.4.29-1ubuntu4
+sudo apt-mark hold apache2
+sudo systemctl restart apache2
+Ubuntu 20 known issues:
+
+MySQL/Node
+
+run this as mysql root – remember to set in correct usernames and passwords:
+
+set global log_bin_trust_function_creators=1;
+
+ALTER USER 'friendchat'@'localhost' IDENTIFIED WITH mysql_native_password BY 'PASSWORD_FOR_FRIENDCHAT_USER';
+
+ALTER USER 'presence'@'localhost' IDENTIFIED WITH mysql_native_password BY 'PASSWORD_FOR_PRESENCE_USER';
+
+FLUSH PRIVILEGES;
